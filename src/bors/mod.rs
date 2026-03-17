@@ -67,6 +67,7 @@ pub fn format_help() -> &'static str {
             approver: _,
             rollup: _,
             priority: _,
+            squash: _,
         } => {}
         BorsCommand::Unapprove => {}
         BorsCommand::Help => {}

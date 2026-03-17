@@ -84,6 +84,16 @@ impl FromStr for RollupMode {
     }
 }
 
+/// Commit message selection for squash operations.
+// TODO: type better?
+#[derive(Debug, PartialEq)]
+pub enum CommitMessage {
+    /// Combine the PR title and all commit messages.
+    Default,
+    /// Use the specified commit message.
+    Specified(String),
+}
+
 /// Bors command specified by a user.
 ///
 /// When modifying commands, remember to also update:
@@ -99,6 +109,8 @@ pub enum BorsCommand {
         priority: Option<Priority>,
         /// Rollup status of the commit.
         rollup: Option<RollupMode>,
+        /// Squash mode of the commit.
+        squash: Option<CommitMessage>,
     },
     /// Unapprove a commit.
     Unapprove,
@@ -135,5 +147,5 @@ pub enum BorsCommand {
     /// Cancel an auto build currently running on a given PR (without removing it from the queue).
     Cancel,
     /// Squash all commits of a pull request into a single commit.
-    Squash { commit_message: Option<String> },
+    Squash(CommitMessage),
 }

@@ -396,6 +396,7 @@ async fn handle_comment(
                         approver,
                         priority,
                         rollup,
+                        squash,
                     } => {
                         let span = tracing::info_span!("Approve");
                         command_approve(
@@ -541,7 +542,7 @@ async fn handle_comment(
                         .instrument(span)
                         .await
                     }
-                    BorsCommand::Squash { commit_message } => {
+                    BorsCommand::Squash(commit_message) => {
                         let span = tracing::info_span!("Squash");
                         if ctx.local_git_available() {
                             squash::command_squash(

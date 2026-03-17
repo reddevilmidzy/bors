@@ -1,4 +1,5 @@
 use crate::PgDbClient;
+use crate::bors::command::CommitMessage;
 use crate::bors::comment::CommentTag;
 use crate::bors::gitops_queue::{
     GitOpsCommand, GitOpsQueueSender, PullRequestId, PushCallback, PushCommand,
@@ -24,7 +25,7 @@ pub(super) async fn command_squash(
     db: Arc<PgDbClient>,
     pr: PullRequestData<'_>,
     author: &GithubUser,
-    commit_message: Option<String>,
+    commit_message: CommitMessage,
     bot_prefix: &CommandPrefix,
     gitops_queue: &GitOpsQueueSender,
 ) -> anyhow::Result<()> {
@@ -132,8 +133,10 @@ pub(super) async fn command_squash(
     // Create the squashed commit on the source repository.
     // We take the parents of the first commit, and the tree of the last commit, to create the
     // squashed commit.
-    let commit_msg =
-        commit_message.unwrap_or_else(|| generate_squashed_commit_msg(&pr.github.title, &commits));
+    let commit_msg = match commit_message {
+        CommitMessage::Default => generate_squashed_commit_msg(&pr.github.title, &commits),
+        CommitMessage::Specified(msg) => msg,
+    };
     let commit = match repo_state
         .client
         .create_commit(

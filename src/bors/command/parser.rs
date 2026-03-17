@@ -1,6 +1,6 @@
 //! Defines parsers for bors commands.
 
-use crate::bors::command::{Approver, BorsCommand, CommandPrefix, Parent};
+use crate::bors::command::{Approver, BorsCommand, CommandPrefix, CommitMessage, Parent};
 use crate::database::DelegatedPermission;
 use crate::github::CommitSha;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd, TextMergeStream};
@@ -288,10 +288,16 @@ fn parser_approval(command: &CommandPart<'_>, parts: &[CommandPart<'_>]) -> Pars
         Some(Err(e)) => return Some(Err(e)),
         None => None,
     };
+    let squash = match parse_squash(parts) {
+        Some(Ok(p)) => Some(p),
+        Some(Err(e)) => return Some(Err(e)),
+        None => None,
+    };
     Some(Ok(BorsCommand::Approve {
         approver,
         priority,
         rollup,
+        squash,
     }))
 }
 
@@ -480,6 +486,20 @@ fn parse_rollup(parts: &[CommandPart<'_>]) -> ParseResult<RollupMode> {
         .next()
 }
 
+fn parse_squash(parts: &[CommandPart<'_>]) -> ParseResult<CommitMessage> {
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            CommandPart::Bare("squash") => Some(Ok(CommitMessage::Default)),
+            CommandPart::KeyValue {
+                key: "squash",
+                value,
+            } => Some(Ok(CommitMessage::Specified(value.to_string()))),
+            _ => None,
+        })
+        .next()
+}
+
 /// Parses "rollup=<never/iffy/maybe/always>"
 fn parser_rollup(command: &CommandPart<'_>, _parts: &[CommandPart<'_>]) -> ParseResult {
     parse_rollup(std::slice::from_ref(command)).map(|res| res.map(BorsCommand::SetRollupMode))
@@ -537,18 +557,16 @@ fn parser_cancel(command: &CommandPart<'_>, _parts: &[CommandPart<'_>]) -> Parse
 fn parser_squash(command: &CommandPart<'_>, parts: &[CommandPart<'_>]) -> ParseResult {
     match command {
         CommandPart::Bare("squash") => match parts {
-            &[] => Some(Ok(BorsCommand::Squash {
-                commit_message: None,
-            })),
+            &[] => Some(Ok(BorsCommand::Squash(CommitMessage::Default))),
             &[
                 CommandPart::KeyValue {
                     key: "msg" | "message",
                     value,
                 },
                 ..,
-            ] => Some(Ok(BorsCommand::Squash {
-                commit_message: Some(value.to_owned()),
-            })),
+            ] => Some(Ok(BorsCommand::Squash(CommitMessage::Specified(
+                value.to_string(),
+            )))),
             [part, ..] => Some(Err(CommandParseError::UnknownArg {
                 arg: part.as_key().to_owned(),
                 did_you_mean: "squash [msg|message=\"<commit-msg>\"]".to_string(),
@@ -561,7 +579,7 @@ fn parser_squash(command: &CommandPart<'_>, parts: &[CommandPart<'_>]) -> ParseR
 #[cfg(test)]
 mod tests {
     use crate::bors::command::parser::{CommandParseError, CommandParser};
-    use crate::bors::command::{Approver, BorsCommand, Parent, RollupMode};
+    use crate::bors::command::{Approver, BorsCommand, CommitMessage, Parent, RollupMode};
     use crate::database::DelegatedPermission;
     use crate::github::CommitSha;
 
@@ -620,6 +638,7 @@ mod tests {
                 approver: Approver::Myself,
                 priority: None,
                 rollup: None,
+                squash: None,
             })
         );
     }
@@ -636,6 +655,7 @@ mod tests {
                 ),
                 priority: None,
                 rollup: None,
+                squash: None,
             },
         )
         "#);
@@ -653,6 +673,7 @@ mod tests {
                 ),
                 priority: None,
                 rollup: None,
+                squash: None,
             },
         )
         "#);
@@ -693,7 +714,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: Some(1),
-                rollup: None
+                rollup: None,
+                squash: None,
             })
         )
     }
@@ -707,7 +729,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user1".to_string()),
                 priority: Some(2),
-                rollup: None
+                rollup: None,
+                squash: None,
             })
         )
     }
@@ -726,7 +749,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: Some(1),
-                rollup: None
+                rollup: None,
+                squash: None,
             })
         );
         assert_eq!(
@@ -734,7 +758,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user2".to_string()),
                 priority: Some(2),
-                rollup: None
+                rollup: None,
+                squash: None,
             })
         );
     }
@@ -761,7 +786,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user1".to_string()),
                 priority: Some(2),
-                rollup: None
+                rollup: None,
+                squash: None,
             })
         )
     }
@@ -884,7 +910,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: None,
-                rollup: Some(RollupMode::Always)
+                rollup: Some(RollupMode::Always),
+                squash: None,
             })
         )
     }
@@ -898,7 +925,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user1".to_string()),
                 priority: None,
-                rollup: Some(RollupMode::Never)
+                rollup: Some(RollupMode::Never),
+                squash: None,
             })
         )
     }
@@ -912,7 +940,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user1".to_string()),
                 priority: None,
-                rollup: Some(RollupMode::Always)
+                rollup: Some(RollupMode::Always),
+                squash: None,
             })
         )
     }
@@ -926,7 +955,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user1".to_string()),
                 priority: None,
-                rollup: Some(RollupMode::Maybe)
+                rollup: Some(RollupMode::Maybe),
+                squash: None,
             })
         )
     }
@@ -945,7 +975,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: None,
-                rollup: Some(RollupMode::Always)
+                rollup: Some(RollupMode::Always),
+                squash: None,
             })
         );
         assert_eq!(
@@ -953,7 +984,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Specified("user2".to_string()),
                 priority: None,
-                rollup: Some(RollupMode::Iffy)
+                rollup: Some(RollupMode::Iffy),
+                squash: None,
             })
         );
     }
@@ -1047,7 +1079,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: Some(1),
-                rollup: Some(RollupMode::Always)
+                rollup: Some(RollupMode::Always),
+                squash: None,
             })
         );
     }
@@ -1061,7 +1094,8 @@ mod tests {
             Ok(BorsCommand::Approve {
                 approver: Approver::Myself,
                 priority: Some(1),
-                rollup: Some(RollupMode::Iffy)
+                rollup: Some(RollupMode::Iffy),
+                squash: None,
             })
         );
     }
@@ -1515,12 +1549,7 @@ for the crater",
     fn parse_squash() {
         let cmds = parse_commands("@bors squash");
         assert_eq!(cmds.len(), 1);
-        assert_eq!(
-            cmds[0],
-            Ok(BorsCommand::Squash {
-                commit_message: None
-            })
-        );
+        assert_eq!(cmds[0], Ok(BorsCommand::Squash(CommitMessage::Default)));
     }
 
     #[test]
@@ -1658,6 +1687,7 @@ I am markdown HTML comment
                 ),
                 priority: None,
                 rollup: None,
+                squash: None,
             },
         )
         "#);
